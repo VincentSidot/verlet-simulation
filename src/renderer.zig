@@ -12,14 +12,16 @@ const Solver = engineSrc.Solver;
 const Constraints = engineSrc.Constraints;
 const Particle = engineSrc.Particle;
 
-const BACKGROUND_COLOR = r.BLACK;
+const CONSTRAINTS_BORDER_COLOR = r.BLACK;
+const BACKGROUND_COLOR = r.LIGHTGRAY;
+const TEXT_COLOR = r.WHITE;
 
 fn writeText(buf: []u8, comptime fmt: []const u8, args: anytype, base_y: *c_int) void {
     const base_x = 10;
     const font_size = 20;
 
     if (std.fmt.bufPrintZ(buf, fmt, args)) |_| {
-        r.DrawText(@ptrCast(buf), base_x, base_y.*, font_size, r.RAYWHITE);
+        r.DrawText(@ptrCast(buf), base_x, base_y.*, font_size, TEXT_COLOR);
         base_y.* += font_size + 5;
     } else |_| {
         // Ignore formatting errors
@@ -27,13 +29,15 @@ fn writeText(buf: []u8, comptime fmt: []const u8, args: anytype, base_y: *c_int)
 }
 
 fn renderConstraints(constraints: Constraints) void {
+    std.debug.print("Constraints: {any}\n", .{constraints});
+
     switch (constraints) {
         .circle => |circle| {
             r.DrawCircleLines(
                 @intFromFloat(circle.center.x),
                 @intFromFloat(circle.center.y),
                 circle.radius,
-                BACKGROUND_COLOR,
+                CONSTRAINTS_BORDER_COLOR,
             );
         },
         .box => |box| {
@@ -42,7 +46,7 @@ fn renderConstraints(constraints: Constraints) void {
                 @intFromFloat(box.min.y),
                 @intFromFloat(box.max.x - box.min.x),
                 @intFromFloat(box.max.y - box.min.y),
-                BACKGROUND_COLOR,
+                CONSTRAINTS_BORDER_COLOR,
             );
         },
     }
@@ -70,6 +74,11 @@ fn renderEngineInfo(
 }
 
 pub fn render(engine: *const Solver) void {
+    r.BeginDrawing();
+    defer r.EndDrawing();
+
+    r.ClearBackground(BACKGROUND_COLOR);
+
     renderConstraints(engine.constraints);
     for (engine.objects.items) |*obj| {
         renderParticle(obj);

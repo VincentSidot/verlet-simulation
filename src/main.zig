@@ -26,8 +26,8 @@ fn getColor(t: f32) Color {
     };
 }
 
-const WIDTH = 800;
-const HEIGHT = 600;
+const WIDTH = 1024;
+const HEIGHT = 1024;
 
 const FRAME_RATE = 60;
 
@@ -45,7 +45,7 @@ pub fn main() !void {
             .x = 0.5 * WIDTH,
             .y = 0.5 * HEIGHT,
         },
-        .radius = @min(WIDTH, HEIGHT),
+        .radius = @min(WIDTH, HEIGHT) * 0.45,
     } });
 
     engine.setSubSteps(8);
@@ -53,12 +53,12 @@ pub fn main() !void {
 
     const objectSpawnDelay = 0.025;
     const objectSpawnSpeed = 1200.0;
-    const objectRadius = 10.0;
+    const objectRadius = 6.0;
     const objectsAngle = math.pi / 6.0; // 30 degrees
 
     const objectSpawnPosition: Vec2 = .{
-        .x = 0.2 * WIDTH,
-        .y = 0.2 * HEIGHT,
+        .x = 0.5 * WIDTH,
+        .y = 0.5 * HEIGHT,
     };
     const maxObjectsCount = 1000;
 
@@ -89,16 +89,6 @@ pub fn main() !void {
         }
 
         engine.update();
-
-        r.BeginDrawing();
-        defer r.EndDrawing();
-
-        r.ClearBackground(.{
-            .r = 0x15,
-            .g = 0x15,
-            .b = 0x15,
-            .a = 0xFF,
-        });
 
         renderer.render(&engine);
     }
