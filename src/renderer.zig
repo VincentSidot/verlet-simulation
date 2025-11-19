@@ -12,9 +12,14 @@ const Solver = engineSrc.Solver;
 const Constraints = engineSrc.Constraints;
 const Particle = engineSrc.Particle;
 
-const CONSTRAINTS_BORDER_COLOR = r.BLACK;
-const BACKGROUND_COLOR = r.LIGHTGRAY;
-const TEXT_COLOR = r.WHITE;
+const CONSTRAINTS_BORDER_COLOR: Color = r.WHITE;
+const BACKGROUND_COLOR: Color = .{
+    .r = 0x15,
+    .g = 0x15,
+    .b = 0x15,
+    .a = 0xFF,
+};
+const TEXT_COLOR: Color = r.WHITE;
 
 fn writeText(buf: []u8, comptime fmt: []const u8, args: anytype, base_y: *c_int) void {
     const base_x = 10;
@@ -29,8 +34,6 @@ fn writeText(buf: []u8, comptime fmt: []const u8, args: anytype, base_y: *c_int)
 }
 
 fn renderConstraints(constraints: Constraints) void {
-    std.debug.print("Constraints: {any}\n", .{constraints});
-
     switch (constraints) {
         .circle => |circle| {
             r.DrawCircleLines(

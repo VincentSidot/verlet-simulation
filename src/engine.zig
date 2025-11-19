@@ -31,12 +31,10 @@ pub const Particle = struct {
 
     pub fn update(self: *Self, dt: f32) void {
         const delta = r.Vector2Subtract(self.position, self.position_old);
-        defer {
-            self.position_old = self.position;
-        }
 
         const dt2 = dt * dt;
 
+        self.position_old = self.position;
         self.position = r.Vector2Add(
             self.position,
             r.Vector2Add(

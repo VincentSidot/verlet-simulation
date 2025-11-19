@@ -29,7 +29,19 @@ fn getColor(t: f32) Color {
 const WIDTH = 1024;
 const HEIGHT = 1024;
 
-const FRAME_RATE = 60;
+const FRAME_RATE = 144;
+
+fn objectsAngle(t: f32) f32 {
+    const startAngle = math.pi / 8.0;
+    const endAngle = 3.0 * math.pi / 8.0;
+
+    const speed = 0.5; // cycles per second
+
+    const sin = math.sin(t * speed);
+    const sin2 = sin * sin;
+
+    return startAngle + (endAngle - startAngle) * sin2;
+}
 
 pub fn main() !void {
     r.InitWindow(WIDTH, HEIGHT, "Verlet Engine with Raylib");
@@ -51,14 +63,15 @@ pub fn main() !void {
     engine.setSubSteps(8);
     engine.setRate(FRAME_RATE);
 
-    const objectSpawnDelay = 0.025;
+    const objectSpawnDelay = 0.05;
     const objectSpawnSpeed = 1200.0;
     const objectRadius = 6.0;
-    const objectsAngle = math.pi / 6.0; // 30 degrees
+
+    // const objectsAngle = math.pi / 6.0; // 30 degrees
 
     const objectSpawnPosition: Vec2 = .{
-        .x = 0.5 * WIDTH,
-        .y = 0.5 * HEIGHT,
+        .x = 0.3 * WIDTH,
+        .y = 0.3 * HEIGHT,
     };
     const maxObjectsCount = 1000;
 
@@ -76,7 +89,7 @@ pub fn main() !void {
 
             var obj = engine.addObject(objectSpawnPosition, objectRadius);
             const time = engine.getTime();
-            const angle = objectsAngle;
+            const angle = objectsAngle(time);
 
             engine.setObjectVelocity(obj, r.Vector2Scale(
                 .{
