@@ -43,28 +43,30 @@ fn objectsAngle(t: f32) f32 {
     return startAngle + (endAngle - startAngle) * sin2;
 }
 
+const RAYLIB_LOG_TARGET = r.LOG_ALL;
+
 pub fn main() !void {
+    r.SetTraceLogLevel(RAYLIB_LOG_TARGET);
+
     r.InitWindow(WIDTH, HEIGHT, "Verlet Engine with Raylib");
     defer r.CloseWindow();
 
     r.SetTargetFPS(FRAME_RATE);
 
-    var engine = Engine.init();
-    defer engine.deinit();
-
-    engine.setConstraints(.{ .circle = .{
+    var engine = Engine.init(.{ .circle = .{
         .center = .{
             .x = 0.5 * WIDTH,
             .y = 0.5 * HEIGHT,
         },
         .radius = @min(WIDTH, HEIGHT) * 0.45,
     } });
+    defer engine.deinit();
 
     engine.setSubSteps(8);
     engine.setRate(FRAME_RATE);
 
-    const objectSpawnDelay = 0.05;
-    const objectSpawnSpeed = 1200.0;
+    const objectSpawnDelay = 0.025;
+    const objectSpawnSpeed = 2400.0;
     const objectRadius = 6.0;
 
     // const objectsAngle = math.pi / 6.0; // 30 degrees
@@ -73,7 +75,7 @@ pub fn main() !void {
         .x = 0.3 * WIDTH,
         .y = 0.3 * HEIGHT,
     };
-    const maxObjectsCount = 1000;
+    const maxObjectsCount = 10_000;
 
     var lastTime = r.GetTime();
     mainLoop: while (!r.WindowShouldClose()) {

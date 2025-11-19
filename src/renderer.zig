@@ -33,8 +33,8 @@ fn writeText(buf: []u8, comptime fmt: []const u8, args: anytype, base_y: *c_int)
     }
 }
 
-fn renderConstraints(constraints: Constraints) void {
-    switch (constraints) {
+fn renderConstraints(constraints: *const Constraints) void {
+    switch (constraints.*) {
         .circle => |circle| {
             r.DrawCircleLines(
                 @intFromFloat(circle.center.x),
@@ -82,7 +82,7 @@ pub fn render(engine: *const Solver) void {
 
     r.ClearBackground(BACKGROUND_COLOR);
 
-    renderConstraints(engine.constraints);
+    renderConstraints(&engine.constraints);
     for (engine.objects.items) |*obj| {
         renderParticle(obj);
     }
