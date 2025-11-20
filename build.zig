@@ -7,9 +7,14 @@ pub fn build(b: *std.Build) void {
 
     const mod = b.addModule("verlet_engine", .{
         .root_source_file = b.path("src/root.zig"),
+        .link_libc = true,
 
         .target = target,
     });
+
+    mod.addIncludePath(b.path("external/raylib-5.5/include"));
+    mod.addObjectFile(b.path("external/raylib-5.5/lib/libraylib.a"));
+    mod.addIncludePath(b.path("external/"));
 
     const exe = b.addExecutable(.{
         .name = "verlet_engine",
@@ -18,8 +23,8 @@ pub fn build(b: *std.Build) void {
 
             .target = target,
             // .optimize = optimize,
-            // .optimize = .ReleaseFast,
-            .optimize = .Debug,
+            .optimize = .ReleaseFast,
+            // .optimize = .Debug,
 
             .link_libc = true,
 
@@ -31,11 +36,6 @@ pub fn build(b: *std.Build) void {
 
     exe.root_module.addIncludePath(b.path("external/raylib-5.5/include"));
     exe.root_module.addObjectFile(b.path("external/raylib-5.5/lib/libraylib.a"));
-
-    exe.root_module.addIncludePath(b.path("external/stb_image"));
-    exe.root_module.addCSourceFiles(.{
-        .files = &.{"external/stb_image/stb_image.c"},
-    });
 
     exe.root_module.addIncludePath(b.path("external/"));
 

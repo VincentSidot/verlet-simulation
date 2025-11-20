@@ -4,13 +4,15 @@ const math = std.math;
 const r = @import("raylib.zig").c;
 
 const engineSrc = @import("engine.zig");
-const imageSrc = @import("image.zig");
+const configSrc = @import("config.zig");
+
 const renderer = @import("renderer.zig");
 
+const allocator = std.heap.smp_allocator;
+
 const Particle = engineSrc.Particle;
-const Engine = engineSrc.Solver;
+const Engine = engineSrc.Solver(allocator);
 const Constraints = engineSrc.Constraints;
-const Image = imageSrc.Image;
 
 const Color = r.Color;
 const Vec2 = r.Vector2;
@@ -28,8 +30,8 @@ fn getColor(t: f32) Color {
     };
 }
 
-const WIDTH: comptime_float = 1024;
-const HEIGHT: comptime_float = 1024;
+const WIDTH: comptime_float = 864;
+const HEIGHT: comptime_float = 1184;
 
 const FRAME_RATE = 60;
 
@@ -48,121 +50,234 @@ fn objectsAngle(t: f32) f32 {
 // const RAYLIB_LOG_TARGET = r.LOG_ALL;
 const RAYLIB_LOG_TARGET = r.LOG_WARNING;
 
-pub fn run() !void {
+pub const CreateConfigMode = struct {
+    imgPath: [:0]const u8,
+    configPath: [:0]const u8,
+};
+
+pub const ReadConfigMode = struct {
+    configPath: [:0]const u8,
+};
+
+pub const RunMode = struct {
+    mode: union(enum) {
+        createConfig: CreateConfigMode,
+        readConfig: ReadConfigMode,
+    },
+
+    // Do not cap the frame rate to simulation target rate
+    realTime: bool = true,
+};
+
+const Config = configSrc.SimulationConfig(allocator);
+const ObjectSpawner = configSrc.ObjectSpawner;
+
+const OBJECT_SIZE = 6.0;
+const SUBSTEP = 8;
+
+const CONSTRAINTS_CIRCLE: Constraints = .{ .circle = .{
+    .center = .{
+        .x = 0.5 * WIDTH,
+        .y = 0.5 * HEIGHT,
+    },
+    .radius = @min(WIDTH, HEIGHT) * 0.45,
+} };
+
+const CONSTRAINTS_BOX: Constraints = .{ .box = .{
+    .min = .{
+        .x = 0.01 * WIDTH,
+        .y = 0.01 * HEIGHT,
+    },
+    .max = .{
+        .x = 0.99 * WIDTH,
+        .y = 0.99 * HEIGHT,
+    },
+} };
+
+const SPAWNERS_CIRCLE: [2]ObjectSpawner = .{
+    .{
+        .pos = .{
+            .x = 0.5 * WIDTH - 4.0 * OBJECT_SIZE,
+            .y = 0.5 * HEIGHT - CONSTRAINTS_CIRCLE.circle.radius + 2.0 * OBJECT_SIZE,
+        },
+        .velocity = 1200.0,
+        .delay = 0.015,
+        .angle = .{
+            .start = (math.pi / 8.0) + (math.pi / 2.0),
+            .end = (3.0 * math.pi / 8.0) + (math.pi / 2.0),
+        },
+    },
+    .{
+        .pos = .{
+            .x = 0.5 * WIDTH + 4.0 * OBJECT_SIZE,
+            .y = 0.5 * HEIGHT - CONSTRAINTS_CIRCLE.circle.radius + 2.0 * OBJECT_SIZE,
+        },
+        .velocity = 1999.0,
+        .delay = 0.025,
+        .angle = .{
+            .start = math.pi / 8.0,
+            .end = 3.0 * math.pi / 8.0,
+        },
+    },
+};
+
+const SPAWNERS_BOX: [3]ObjectSpawner = .{
+    .{
+        // Central spawner
+        .pos = .{
+            .x = 0.5 * WIDTH,
+            .y = 0.1 * HEIGHT + 2.0 * OBJECT_SIZE,
+        },
+        .velocity = 900.0,
+        .delay = 0.015,
+        .angle = .{
+            .start = math.pi / 6.0,
+            .end = 5.0 * math.pi / 6.0,
+        },
+    },
+    .{
+        .pos = .{
+            .x = 0.3 * WIDTH,
+            .y = 0.1 * HEIGHT + 2.0 * OBJECT_SIZE,
+        },
+        .velocity = 900.0,
+        .delay = 0.015,
+        .angle = .{
+            .start = (5.0 * math.pi / 6.0) - (math.pi / 24.0),
+            .end = (5.0 * math.pi / 6.0) + (math.pi / 24.0),
+        },
+    },
+    .{
+        .pos = .{
+            .x = 0.7 * WIDTH,
+            .y = 0.1 * HEIGHT + 2.0 * OBJECT_SIZE,
+        },
+        .velocity = 900.0,
+        .delay = 0.015,
+        .angle = .{
+            .start = (1.0 * math.pi / 6.0) - (math.pi / 24.0),
+            .end = (1.0 * math.pi / 6.0) + (math.pi / 24.0),
+        },
+    },
+};
+
+fn defaultConfig() Config {
+    return Config.init(
+        FRAME_RATE,
+        OBJECT_SIZE,
+        .{ .fill = 0.95 },
+        SUBSTEP,
+        WIDTH,
+        HEIGHT,
+        CONSTRAINTS_BOX,
+        &SPAWNERS_BOX,
+    );
+}
+
+fn saveConfig(config: *Config, opts: CreateConfigMode, engine: *Engine) !void {
+    // Opening the image
+    std.debug.print("Opening image at path: {s}", .{opts.imgPath});
+
+    const screenWidth: f32 = @floatFromInt(config.width);
+    const screenHeight: f32 = @floatFromInt(config.height);
+
+    const targetWidth: i32 = @intFromFloat(screenWidth / config.objectRadius);
+    const targetHeight: i32 = @intFromFloat(screenHeight / config.objectRadius);
+
+    var img = r.LoadImage(opts.imgPath);
+    defer r.UnloadImage(img);
+
+    r.ImageResize(&img, targetWidth, targetHeight);
+
+    // Apply colors
+    std.debug.print("Applying image to simulation\n", .{});
+
+    const ballsColor = try allocator.alloc(Color, config.objectCount);
+
+    for (engine.objects.items, 0..) |*obj, i| {
+        const pos = obj.position;
+        const imgX: i32 = @intFromFloat(pos.x / config.objectRadius);
+        const imgY: i32 = @intFromFloat(pos.y / config.objectRadius);
+
+        const color = r.GetImageColor(img, imgX, imgY);
+        obj.setColor(color);
+        ballsColor[i] = color;
+    }
+
+    config.balls = ballsColor; // Set the colors in the config
+
+    // Saving the config file
+    std.debug.print("Saving configuration to path: {s}\n", .{opts.configPath});
+    try config.saveToFile(opts.configPath);
+}
+
+pub fn run(args: RunMode) !void {
+    var config: Config = undefined;
+
+    switch (args.mode) {
+        .createConfig => {
+            config = defaultConfig();
+        },
+        .readConfig => |cfg| {
+            config = try Config.loadFromFile(cfg.configPath);
+        },
+    }
+
     r.SetTraceLogLevel(RAYLIB_LOG_TARGET);
 
-    r.InitWindow(WIDTH, HEIGHT, "Verlet Engine with Raylib");
+    r.InitWindow(
+        @intCast(config.width),
+        @intCast(config.height),
+        "Verlet Simulation",
+    );
     defer r.CloseWindow();
 
-    r.SetTargetFPS(FRAME_RATE);
+    if (args.realTime) {
+        r.SetTargetFPS(@intCast(config.frameRate));
+    }
 
-    const circleBoundaryCenterX: comptime_float = 0.5 * WIDTH;
-    const circleBoundaryCenterY: comptime_float = 0.5 * HEIGHT;
-    const circleBoundaryRadius: comptime_float = @min(WIDTH, HEIGHT) * 0.45;
+    // Compute grid size
+    const gridRows: usize = @intFromFloat(@as(f32, @floatFromInt(config.height)) / (2.0 * config.objectRadius));
+    const gridCols: usize = @intFromFloat(@as(f32, @floatFromInt(config.width)) / (2.0 * config.objectRadius));
 
-    var engine = Engine.init(.{ .circle = .{
-        .center = .{
-            .x = 0.5 * WIDTH,
-            .y = 0.5 * HEIGHT,
-        },
-        .radius = @min(WIDTH, HEIGHT) * 0.45,
-    } });
+    var engine = Engine.init(config.constraints, .{
+        .rows = gridRows,
+        .cols = gridCols,
+    });
     defer engine.deinit();
 
-    engine.setSubSteps(8);
-    engine.setRate(FRAME_RATE);
+    engine.setSubSteps(config.substep);
+    engine.setRate(config.frameRate);
 
-    const objectSpawnDelay = 0.015;
-    // const objectSpawnSpeed = 800.0;
-    const objectRadius = 6.0;
+    const lastTimes: []f32 = allocator.alloc(f32, config.spawners.len) catch unreachable;
+    defer allocator.free(lastTimes);
 
-    // Compute boundary area
-    const boundaryArea = math.pi * circleBoundaryRadius * circleBoundaryRadius; // pi * r^2
-    const objectArea = math.pi * objectRadius * objectRadius; // pi * r^
-    const targetObjectsCount: comptime_int = @intFromFloat((boundaryArea / objectArea) * 0.95);
+    while (!r.WindowShouldClose()) {
+        const time = engine.getTime();
 
-    std.debug.print("Target objects count: {}\n", .{targetObjectsCount});
+        if (engine.getObjectsCount() < config.objectCount) {
+            for (config.spawners, lastTimes) |*spawner, *lastTime| {
+                if (time - lastTime.* > spawner.delay) {
+                    lastTime.* = time; // Save last spawn time
 
-    // Compute the highest point of the circle boundary
-    const consideredObjectRadius = 4 * objectRadius;
-    const circleTopY = circleBoundaryCenterY - circleBoundaryRadius + 2 * consideredObjectRadius;
-    const centerX = circleBoundaryCenterX;
+                    const objectIndex = engine.getObjectsCount();
+                    const object = engine.addObject(spawner.pos, config.objectRadius);
 
-    const objectSpawnPositionA: Vec2 = .{
-        .x = centerX - consideredObjectRadius,
-        .y = circleTopY,
-    };
-    const objectSpawnPositionB: Vec2 = .{
-        .x = centerX + consideredObjectRadius,
-        .y = circleTopY,
-    };
-    // const maxObjectsCount = 10_000;
-    const objectsVelocity = 1200.0;
+                    const velocity = spawner.getVelocityAtTime(time);
+                    engine.setObjectVelocity(object, velocity);
 
-    var lastTime = r.GetTime();
-    mainLoop: while (!r.WindowShouldClose()) {
-        const getTime = r.GetTime();
-        const deltaTime = getTime - lastTime;
-
-        if (r.IsKeyPressed(r.KEY_ESCAPE)) {
-            break :mainLoop;
-        }
-
-        if (engine.getObjectsCount() < targetObjectsCount and deltaTime >= objectSpawnDelay) {
-            lastTime = getTime;
-
-            const time = engine.getTime();
-            const angle = objectsAngle(time);
-            const angle2 = angle + (math.pi / 2.0);
-            const speed = objectsVelocity;
-
-            var objA = engine.addObject(objectSpawnPositionA, objectRadius);
-            engine.setObjectVelocity(objA, r.Vector2Scale(
-                .{
-                    .x = math.cos(angle2),
-                    .y = math.sin(angle2),
-                },
-                speed,
-            ));
-            objA.setColor(getColor(time));
-
-            var objB = engine.addObject(objectSpawnPositionB, objectRadius);
-            engine.setObjectVelocity(objB, r.Vector2Scale(
-                .{
-                    .x = math.cos(angle),
-                    .y = math.sin(angle),
-                },
-                speed,
-            ));
-            objB.setColor(getColor(time));
-        } else if (engine.getObjectsCount() == targetObjectsCount) {
-            std.debug.print("Reached target objects count: {}\n", .{targetObjectsCount});
-            // Done spawning objects for this simulation
-            // Let's create from the image
-            const targetWidth: i32 = @intFromFloat(WIDTH / objectRadius);
-            const targetHeight: i32 = @intFromFloat(HEIGHT / objectRadius);
-            const img = try Image.init("images/sky.jpg", targetWidth, targetHeight);
-            defer img.deinit();
-
-            const file = try std.fs.cwd().createFile("config/sky.bin", .{ .truncate = true });
-            defer file.close();
-
-            for (engine.objects.items) |*obj| {
-                const pos = obj.position;
-                const imgX: i32 = @intFromFloat(pos.x / objectRadius);
-                const imgY: i32 = @intFromFloat(pos.y / objectRadius);
-
-                const color = img.getColorAt(imgX, imgY);
-                obj.setColor(color); // To se the rendered image
-                const colorSlice: [4]u8 = @bitCast(color);
-                _ = try file.write(&colorSlice);
+                    if (config.balls) |balls| {
+                        object.setColor(balls[objectIndex]);
+                    } else {
+                        object.setColor(getColor(time));
+                    }
+                }
             }
-
-            std.debug.print("Saved object colors to config/sky.bin\n", .{});
+        } else if (config.balls == null) {
+            try saveConfig(&config, args.mode.createConfig, &engine);
         }
 
         engine.update();
-
-        renderer.render(&engine);
+        renderer.render(&engine, &config);
     }
 }
