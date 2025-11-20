@@ -69,6 +69,8 @@ fn renderParticle(particle: *const Particle) void {
 fn renderEngineInfo(
     engine: anytype,
     config: anytype,
+    engineUpdateTime: f64,
+    engineRenderTime: f64,
 ) void {
     var buf: [255]u8 = undefined;
     var base_y: c_int = 10;
@@ -84,18 +86,25 @@ fn renderEngineInfo(
     const fps = r.GetFPS();
 
     writeText(&buf, "Object count: {d} ({d}%)", .{ objectCount, fillPercentage }, &base_y);
-    writeText(&buf, "Frame time: {d} ms ({d} FPS)", .{ frameTimeMs, fps }, &base_y);
+    writeText(&buf, "Frame time: {d}ms ({d} FPS)", .{ frameTimeMs, fps }, &base_y);
+    writeText(&buf, "Phys: {d}ms | Render: {d}ms", .{
+        @as(i32, @intFromFloat(engineUpdateTime * 1000.0)),
+        @as(i32, @intFromFloat(engineRenderTime * 1000.0)),
+    }, &base_y);
 }
 
-pub fn render(engine: anytype, config: anytype) void {
+pub fn render(engine: anytype, config: anytype, engineUpdateTime: f64) void {
     r.BeginDrawing();
     defer r.EndDrawing();
 
     r.ClearBackground(BACKGROUND_COLOR);
 
     renderConstraints(&engine.constraints);
+
+    const beginRenderTime = r.GetTime();
     for (engine.objects.items) |*obj| {
         renderParticle(obj);
     }
-    renderEngineInfo(engine, config);
+    const engineRenderTime = r.GetTime() - beginRenderTime;
+    renderEngineInfo(engine, config, engineUpdateTime, engineRenderTime);
 }

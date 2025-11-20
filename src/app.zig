@@ -30,10 +30,10 @@ fn getColor(t: f32) Color {
     };
 }
 
-const WIDTH: comptime_float = 864;
-const HEIGHT: comptime_float = 1184;
+const WIDTH: comptime_float = 800;
+const HEIGHT: comptime_float = 600;
 
-const FRAME_RATE = 60;
+const FRAME_RATE = 144;
 
 fn objectsAngle(t: f32) f32 {
     const startAngle = math.pi / 8.0;
@@ -72,7 +72,7 @@ pub const RunMode = struct {
 const Config = configSrc.SimulationConfig(allocator);
 const ObjectSpawner = configSrc.ObjectSpawner;
 
-const OBJECT_SIZE = 6.0;
+const OBJECT_SIZE = 5.0;
 const SUBSTEP = 8;
 
 const CONSTRAINTS_CIRCLE: Constraints = .{ .circle = .{
@@ -80,7 +80,7 @@ const CONSTRAINTS_CIRCLE: Constraints = .{ .circle = .{
         .x = 0.5 * WIDTH,
         .y = 0.5 * HEIGHT,
     },
-    .radius = @min(WIDTH, HEIGHT) * 0.45,
+    .radius = @min(WIDTH, HEIGHT) * 0.48,
 } };
 
 const CONSTRAINTS_BOX: Constraints = .{ .box = .{
@@ -97,26 +97,26 @@ const CONSTRAINTS_BOX: Constraints = .{ .box = .{
 const SPAWNERS_CIRCLE: [2]ObjectSpawner = .{
     .{
         .pos = .{
-            .x = 0.5 * WIDTH - 4.0 * OBJECT_SIZE,
-            .y = 0.5 * HEIGHT - CONSTRAINTS_CIRCLE.circle.radius + 2.0 * OBJECT_SIZE,
+            .x = 0.5 * WIDTH,
+            .y = 0.5 * HEIGHT,
         },
-        .velocity = 1200.0,
+        .velocity = 2000.0,
         .delay = 0.015,
         .angle = .{
-            .start = (math.pi / 8.0) + (math.pi / 2.0),
-            .end = (3.0 * math.pi / 8.0) + (math.pi / 2.0),
+            .start = 0.0,
+            .end = 8.0 * math.pi, // 4 full rotations
         },
     },
     .{
         .pos = .{
-            .x = 0.5 * WIDTH + 4.0 * OBJECT_SIZE,
+            .x = 0.5 * WIDTH,
             .y = 0.5 * HEIGHT - CONSTRAINTS_CIRCLE.circle.radius + 2.0 * OBJECT_SIZE,
         },
         .velocity = 1999.0,
-        .delay = 0.025,
+        .delay = 0.019,
         .angle = .{
-            .start = math.pi / 8.0,
-            .end = 3.0 * math.pi / 8.0,
+            .start = 2.0 * math.pi / 8.0,
+            .end = 6.0 * math.pi / 8.0,
         },
     },
 };
@@ -169,8 +169,8 @@ fn defaultConfig() Config {
         SUBSTEP,
         WIDTH,
         HEIGHT,
-        CONSTRAINTS_BOX,
-        &SPAWNERS_BOX,
+        CONSTRAINTS_CIRCLE,
+        &SPAWNERS_CIRCLE,
     );
 }
 
@@ -277,7 +277,9 @@ pub fn run(args: RunMode) !void {
             try saveConfig(&config, args.mode.createConfig, &engine);
         }
 
+        const startEngineUpdate = r.GetTime();
         engine.update();
-        renderer.render(&engine, &config);
+        const engineUpdate = r.GetTime() - startEngineUpdate;
+        renderer.render(&engine, &config, engineUpdate);
     }
 }
