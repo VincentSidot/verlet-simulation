@@ -11,7 +11,7 @@ const renderer = @import("renderer.zig");
 const allocator = std.heap.smp_allocator;
 
 const Particle = engineSrc.Particle;
-const Engine = engineSrc.Solver(allocator);
+const Engine = engineSrc.Solver(allocator, POOL_SIZE);
 const Constraints = engineSrc.Constraints;
 
 const Color = r.Color;
@@ -29,11 +29,6 @@ fn getColor(t: f32) Color {
         .a = 0xFF,
     };
 }
-
-const WIDTH: comptime_float = 800;
-const HEIGHT: comptime_float = 600;
-
-const FRAME_RATE = 144;
 
 fn objectsAngle(t: f32) f32 {
     const startAngle = math.pi / 8.0;
@@ -72,6 +67,13 @@ pub const RunMode = struct {
 const Config = configSrc.SimulationConfig(allocator);
 const ObjectSpawner = configSrc.ObjectSpawner;
 
+const POOL_SIZE = 3;
+
+const WIDTH: comptime_float = 800;
+const HEIGHT: comptime_float = 800;
+
+const FRAME_RATE = 60;
+
 const OBJECT_SIZE = 5.0;
 const SUBSTEP = 8;
 
@@ -94,13 +96,13 @@ const CONSTRAINTS_BOX: Constraints = .{ .box = .{
     },
 } };
 
-const SPAWNERS_CIRCLE: [2]ObjectSpawner = .{
+const SPAWNERS_CIRCLE = [_]ObjectSpawner{
     .{
         .pos = .{
-            .x = 0.5 * WIDTH,
-            .y = 0.5 * HEIGHT,
+            .x = 0.5 * WIDTH + 2.0 * OBJECT_SIZE,
+            .y = 0.5 * HEIGHT + 2.0 * OBJECT_SIZE,
         },
-        .velocity = 2000.0,
+        .velocity = 1200.0,
         .delay = 0.015,
         .angle = .{
             .start = 0.0,
@@ -109,14 +111,14 @@ const SPAWNERS_CIRCLE: [2]ObjectSpawner = .{
     },
     .{
         .pos = .{
-            .x = 0.5 * WIDTH,
-            .y = 0.5 * HEIGHT - CONSTRAINTS_CIRCLE.circle.radius + 2.0 * OBJECT_SIZE,
+            .x = 0.5 * WIDTH - 2.0 * OBJECT_SIZE,
+            .y = 0.5 * HEIGHT - 2.0 * OBJECT_SIZE,
         },
-        .velocity = 1999.0,
-        .delay = 0.019,
+        .velocity = 1200.0,
+        .delay = 0.015,
         .angle = .{
-            .start = 2.0 * math.pi / 8.0,
-            .end = 6.0 * math.pi / 8.0,
+            .start = -5.0 * math.pi,
+            .end = 3.0 * math.pi,
         },
     },
 };
@@ -171,6 +173,8 @@ fn defaultConfig() Config {
         HEIGHT,
         CONSTRAINTS_CIRCLE,
         &SPAWNERS_CIRCLE,
+        // CONSTRAINTS_BOX,
+        // &SPAWNERS_BOX,
     );
 }
 
@@ -237,10 +241,13 @@ pub fn run(args: RunMode) !void {
     }
 
     // Compute grid size
-    const gridRows: usize = @intFromFloat(@as(f32, @floatFromInt(config.height)) / (2.0 * config.objectRadius));
-    const gridCols: usize = @intFromFloat(@as(f32, @floatFromInt(config.width)) / (2.0 * config.objectRadius));
+    const RADIUS_MULTIPLIER: f32 = 4.0;
+    const gridRows: usize = @intFromFloat(@as(f32, @floatFromInt(config.height)) / (RADIUS_MULTIPLIER * config.objectRadius));
+    const gridCols: usize = @intFromFloat(@as(f32, @floatFromInt(config.width)) / (RADIUS_MULTIPLIER * config.objectRadius));
 
-    var engine = Engine.init(config.constraints, .{
+    var engine: Engine = .{ .constraints = config.constraints };
+
+    engine.init(.{
         .rows = gridRows,
         .cols = gridCols,
     });

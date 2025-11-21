@@ -2,6 +2,7 @@ const std = @import("std");
 const math = std.math;
 
 const r = @import("raylib.zig").c;
+const Pool = @import("pool.zig").Pool;
 
 // const a = std.heap.smp_allocator;
 
@@ -132,6 +133,8 @@ pub const Particle = struct {
 };
 
 const ParticleArray = std.array_list.AlignedManaged(Particle, null);
+const ParticleIndexArray = std.array_list.AlignedManaged(usize, null);
+const DEFAULT_CAPACITY = 4; // Let's assume each grid cell will have at least 4 particles on average
 
 pub const GridSize = struct {
     rows: usize,
@@ -153,7 +156,7 @@ pub fn Grid(allocator: Allocator) type {
             currentXOffset: isize = -1,
             currentYOffset: isize = -1,
 
-            currentNode: ?*std.DoublyLinkedList.Node = null,
+            currentNode: ?struct { array: *ParticleIndexArray, idx: usize } = null,
 
             fn incrementOffset(self: *NeighborIterator) bool {
                 self.currentXOffset += 1;
@@ -169,97 +172,82 @@ pub fn Grid(allocator: Allocator) type {
             }
 
             pub fn next(self: *NeighborIterator) ?usize {
-                if (self.currentNode) |node| {
-                    self.currentNode = node.next;
-                    const element = GridElement.getNode(node);
-                    const particleIdx = element.particleIdx;
-                    if (particleIdx != self.particle.idx) {
-                        return particleIdx;
-                    } else {
-                        return self.next();
-                    }
-                } else {
-                    // Move to next cell
-                    if (!self.incrementOffset()) {
-                        return null; // No more cells
-                    }
-
-                    const centerPos = self.particle.raw.gridIndex orelse unreachable;
-                    const centerY, const centerX = self.grid.computeDualIndex(centerPos);
-
-                    const offsetX = @as(isize, @intCast(centerX)) + self.currentXOffset;
-                    const offsetY = @as(isize, @intCast(centerY)) + self.currentYOffset;
-
-                    const gridSize = self.grid.gridSize;
-
-                    if (offsetX >= 0 and offsetX < gridSize.cols) {
-                        if (offsetY >= 0 and offsetY < gridSize.rows) {
-                            const cellIndex = self.grid.computeSingleIndex(
-                                @intCast(offsetX),
-                                @intCast(offsetY),
-                            );
-                            const cell = &self.grid.gridData[cellIndex];
-                            self.currentNode = cell.elements.first;
+                const MAX_ITERATIONS = 255; //
+                var it: usize = 0;
+                while (it < MAX_ITERATIONS) : (it += 1) {
+                    if (self.currentNode) |data| {
+                        if (data.idx < data.array.items.len) {
+                            const particleIdx = data.array.items[data.idx];
+                            self.currentNode.?.idx += 1;
+                            if (particleIdx != self.particle.idx) {
+                                return particleIdx;
+                            }
+                        } else {
+                            // Done with current cell
+                            self.currentNode = null;
                         }
+                        continue;
+                    } else {
+                        // Move to next cell
+                        if (!self.incrementOffset()) {
+                            return null; // No more cells
+                        }
+
+                        const centerPos = self.particle.raw.gridIndex orelse unreachable;
+                        const centerY, const centerX = self.grid.computeDualIndex(centerPos);
+
+                        const offsetX = @as(isize, @intCast(centerX)) + self.currentXOffset;
+                        const offsetY = @as(isize, @intCast(centerY)) + self.currentYOffset;
+
+                        const gridSize = self.grid.gridSize;
+
+                        if (offsetX >= 0 and offsetX < gridSize.cols) {
+                            if (offsetY >= 0 and offsetY < gridSize.rows) {
+                                const cellIndex = self.grid.computeSingleIndex(
+                                    @intCast(offsetX),
+                                    @intCast(offsetY),
+                                );
+                                const cell = &self.grid.gridData[cellIndex];
+                                self.currentNode = .{
+                                    .array = &cell.elements,
+                                    .idx = 0,
+                                };
+                            }
+                        }
+                        continue;
                     }
-                    return self.next();
                 }
+
+                std.debug.print("Max iterations reached while getting neighbors\n", .{});
+                return null;
             }
         };
 
         const GridElement = struct {
-            elements: std.DoublyLinkedList,
-
-            const Node = struct {
-                particleIdx: usize,
-                node: std.DoublyLinkedList.Node,
-
-                fn init(particleIdx: usize) *Node {
-                    const self = allocator.create(Node) catch unreachable;
-                    self.* = .{
-                        .particleIdx = particleIdx,
-                        .node = .{},
-                    };
-                    return self;
-                }
-
-                fn deinit(self: *Node) void {
-                    allocator.destroy(self);
-                }
-            };
-
-            fn getNode(raw: *std.DoublyLinkedList.Node) *Node {
-                return @fieldParentPtr("node", raw);
-            }
+            elements: ParticleIndexArray,
 
             fn init() GridElement {
-                return .{ .elements = .{} };
+                return .{ .elements = ParticleIndexArray.initCapacity(allocator, DEFAULT_CAPACITY) catch unreachable };
             }
 
             fn deinit(self: *GridElement) void {
-                var it = self.elements.first;
-                while (it) |raw| {
-                    const node: *Node = GridElement.getNode(raw);
-                    it = raw.next;
-                    self.elements.remove(raw);
-                    node.deinit();
-                }
+                self.elements.deinit();
             }
 
             fn addParticle(self: *GridElement, particleIdx: usize) void {
-                self.elements.append(&Node.init(particleIdx).node);
+                self.elements.append(particleIdx) catch unreachable;
             }
 
             fn removeParticle(self: *GridElement, particleIdx: usize) void {
-                var it = self.elements.first;
-                while (it) |raw| {
-                    const node: *Node = GridElement.getNode(raw);
-                    it = raw.next;
-                    if (node.particleIdx == particleIdx) {
-                        self.elements.remove(raw);
-                        node.deinit();
-                        return;
+                var foundIndex: ?usize = null;
+                for (self.elements.items, 0..) |idx, i| {
+                    if (idx == particleIdx) {
+                        foundIndex = i;
+                        break;
                     }
+                }
+                if (foundIndex) |fi| {
+                    _ = self.elements.swapRemove(fi);
                 }
             }
         };
@@ -345,15 +333,16 @@ pub fn Grid(allocator: Allocator) type {
     };
 }
 
-pub fn Solver(allocator: Allocator) type {
+pub fn Solver(comptime allocator: Allocator, comptime POOL_SIZE: usize) type {
     return struct {
         const Self = @This();
         const GridType = Grid(allocator);
+        const PoolSolver = Pool(POOL_SIZE, PoolFunctionArg, void, Self.poolFunction);
 
         // Fields
 
         gravity: Vec2 = .{ .x = 0.0, .y = 1000.0 },
-        objects: ParticleArray,
+        objects: ParticleArray = undefined,
 
         time: f32 = 0.0,
         timeDt: f32 = 0.0,
@@ -361,21 +350,51 @@ pub fn Solver(allocator: Allocator) type {
         subSteps: u32 = 1,
         constraints: Constraints,
 
-        grid: GridType,
+        grid: GridType = undefined,
+        pool: PoolSolver = .{},
 
         // Public methods
 
-        pub fn init(constraints: Constraints, gridSize: GridSize) Self {
-            return Self{
-                .constraints = constraints,
-                .objects = ParticleArray.init(allocator),
-                .grid = GridType.init(&constraints, gridSize),
-            };
+        // pub fn init(constraints: Constraints, ) Self {
+        pub fn init(self: *Self, gridSize: GridSize) void {
+            self.pool.init();
+            errdefer self.pool.deinit();
+
+            const objects = ParticleArray.init(allocator);
+            const grid = GridType.init(&self.constraints, gridSize);
+
+            const MAX_VALUE = grid.gridSize.rows;
+            const GRID_SLICE = MAX_VALUE / POOL_SIZE;
+            for (0..POOL_SIZE) |idx| {
+                const startIndex = idx * GRID_SLICE;
+
+                var endIndex: usize = startIndex + GRID_SLICE;
+                if (idx == POOL_SIZE - 1) {
+                    endIndex = MAX_VALUE;
+                }
+
+                const middleIndex = (startIndex + endIndex) / 2;
+
+                std.debug.print("{any}\n", .{.{
+                    .startIndex = startIndex,
+                    .middleIndex = middleIndex,
+                    .endIndex = endIndex,
+                }});
+
+                self.pool.args[idx].startIndex = startIndex;
+                self.pool.args[idx].middleIndex = middleIndex;
+                self.pool.args[idx].endIndex = endIndex;
+                self.pool.args[idx].engine = self;
+            }
+
+            self.objects = objects;
+            self.grid = grid;
         }
 
         pub fn deinit(self: *Self) void {
             self.objects.deinit();
             self.grid.deinit();
+            self.pool.deinit();
         }
 
         pub fn addObject(self: *Self, pos: Vec2, radius: f32) *Particle {
@@ -429,61 +448,161 @@ pub fn Solver(allocator: Allocator) type {
 
         // Private methods
 
+        const State = enum {
+            ApplyGravity,
+            CheckCollisions,
+            ApplyConstraints,
+            UpdateObjects,
+        };
+
+        const PoolFunctionArg = struct {
+
+            // Fixed per pool
+            startIndex: usize,
+            middleIndex: usize,
+            endIndex: usize,
+            engine: *Self,
+
+            // To update per call
+            state: State,
+            dt: f32,
+            firstPass: bool,
+        };
+
+        fn poolFunction(arg: PoolFunctionArg) void {
+            const responseCoef = 0.75;
+
+            var startRow = arg.startIndex;
+            var endRow = arg.middleIndex;
+            if (!arg.firstPass) {
+                startRow = arg.middleIndex;
+                endRow = arg.endIndex;
+            }
+
+            const startIndex = startRow * arg.engine.grid.gridSize.cols;
+            const endIndex = endRow * arg.engine.grid.gridSize.cols;
+
+            for (arg.engine.grid.gridData[startIndex..endIndex]) |*grid| {
+                for (grid.elements.items) |idx| {
+                    const obj = &arg.engine.objects.items[idx];
+                    switch (arg.state) {
+                        .ApplyGravity => {
+                            obj.accelerate(arg.engine.gravity);
+                        },
+                        .CheckCollisions => {
+                            arg.engine.checkCollisionsInner(obj, idx, responseCoef);
+                        },
+                        .ApplyConstraints => {
+                            arg.engine.constraints.applyConstraints(obj);
+                        },
+                        .UpdateObjects => {
+                            arg.engine.updateOjectsInner(obj, idx, arg.dt);
+
+                            // Change color of ball based on thread
+                            {
+                                const threadId = std.Thread.getCurrentId();
+                                var alpha: u8 = undefined;
+                                if (arg.firstPass) {
+                                    alpha = 0xff;
+                                } else {
+                                    alpha = 0x7f;
+                                }
+                                const threadIDSmall: u24 = @intCast(threadId % 0xFFFFFF);
+
+                                const red = @as(u8, @intCast((threadIDSmall & 0xFF0000) >> 16));
+                                const green = @as(u8, @intCast((threadIDSmall & 0x00FF00) >> 8));
+                                const blue = @as(u8, @intCast((threadIDSmall & 0x0000FF)));
+
+                                obj.setColor(.{
+                                    .r = red,
+                                    .g = green,
+                                    .b = blue,
+                                    .a = alpha,
+                                });
+                            }
+                        },
+                    }
+                }
+            }
+        }
+
         fn getStepTime(self: *const Self) f32 {
             return self.timeDt / @as(f32, @floatFromInt(self.subSteps));
         }
 
         fn applyGravity(self: *Self) void {
-            for (self.objects.items) |*obj| {
-                obj.accelerate(self.gravity);
-            }
+            self.pool.execute(.{
+                .state = State.ApplyGravity,
+                .firstPass = true,
+            });
+            self.pool.execute(.{
+                .state = State.ApplyGravity,
+                .firstPass = false,
+            });
         }
 
         fn checkCollisions(self: *Self, dt: f32) void {
             _ = dt;
-            const reponseCoef = 0.75;
-
-            for (self.objects.items, 0..) |*objA, objAIdx| {
-                const objAInfo: GridType.ParticleInfo = .{
-                    .idx = objAIdx,
-                    .raw = objA,
-                };
-                var iterator = self.grid.getIterator(objAInfo);
-                var maybeParticle = iterator.next();
-
-                while (maybeParticle) |objBIndex| : (maybeParticle = iterator.next()) {
-                    const objB = &self.objects.items[objBIndex];
-                    if (objA.handleCollision(objB, reponseCoef)) {
-                        self.grid.updateParticlePosition(objAInfo);
-                        self.grid.updateParticlePosition(.{ .idx = objBIndex, .raw = objB });
-                    }
-                }
-            }
-
-            // for (self.objects.items, 0..) |*objA, i| {
-            //     for (self.objects.items[i + 1 ..]) |*objB| {
-            //         if (objA.handleCollision(objB, reponseCoef)) {
-            //             self.grid.updateParticlePosition(objA);
-            //             self.grid.updateParticlePosition(objB);
-            //         }
-            //     }
-            // }
+            self.pool.execute(.{
+                .state = State.CheckCollisions,
+                .firstPass = true,
+            });
+            self.pool.execute(.{
+                .state = State.CheckCollisions,
+                .firstPass = false,
+            });
         }
 
         fn applyConstraints(self: *Self) void {
-            for (self.objects.items) |*obj| {
-                self.constraints.applyConstraints(obj);
-            }
+            self.pool.execute(.{
+                .state = State.ApplyConstraints,
+                .firstPass = true,
+            });
+            self.pool.execute(.{
+                .state = State.ApplyConstraints,
+                .firstPass = false,
+            });
         }
 
         fn updateObjects(self: *Self, dt: f32) void {
-            for (self.objects.items, 0..) |*obj, i| {
-                obj.update(dt);
-                self.grid.updateParticlePosition(.{
-                    .idx = i,
-                    .raw = obj,
-                });
+            self.pool.execute(.{
+                .state = State.UpdateObjects,
+                .dt = dt,
+                .firstPass = true,
+            });
+            self.pool.execute(.{
+                .state = State.UpdateObjects,
+                .dt = dt,
+                .firstPass = false,
+            });
+        }
+
+        fn checkCollisionsInner(self: *Self, obj: *Particle, idx: usize, responseCoef: f32) void {
+            const objA = obj;
+            const objAInfo: GridType.ParticleInfo = .{
+                .idx = idx,
+                .raw = obj,
+            };
+            var iterator = self.grid.getIterator(objAInfo);
+            var maybeParticle = iterator.next();
+
+            while (maybeParticle) |objBIndex| : (maybeParticle = iterator.next()) {
+                const objB = &self.objects.items[objBIndex];
+                _ = objA.handleCollision(objB, responseCoef);
+                // if (objA.handleCollision(objB, responseCoef)) {
+                //     self.grid.updateParticlePosition(objAInfo);
+                //     self.grid.updateParticlePosition(.{ .idx = objBIndex, .raw = objB });
+                // }
             }
+        }
+
+        fn updateOjectsInner(self: *Self, obj: *Particle, idx: usize, dt: f32) void {
+            obj.update(dt);
+
+            self.grid.updateParticlePosition(.{
+                .idx = idx,
+                .raw = obj,
+            });
         }
     };
 }

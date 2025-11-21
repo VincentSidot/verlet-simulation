@@ -22,6 +22,13 @@ const BACKGROUND_COLOR: Color = .{
     .b = 0x15,
     .a = 0xFF,
 };
+// const BACKGROUND_COLOR: Color = r.SKYBLUE;
+const GRID_COLOR: Color = .{
+    .r = 0xff,
+    .g = 0x10,
+    .b = 0x10,
+    .a = 0x40,
+};
 const TEXT_COLOR: Color = r.WHITE;
 
 fn writeText(buf: []u8, comptime fmt: []const u8, args: anytype, base_y: *c_int) void {
@@ -55,6 +62,27 @@ fn renderConstraints(constraints: *const Constraints) void {
                 CONSTRAINTS_BORDER_COLOR,
             );
         },
+    }
+}
+
+fn renderGrid(grid: anytype) void {
+    const rows = grid.gridSize.rows;
+    const cols = grid.gridSize.cols;
+
+    const screenWidth = r.GetScreenWidth();
+    const screenHeight = r.GetScreenHeight();
+
+    const cellWidth = @as(f32, @floatFromInt(screenWidth)) / @as(f32, @floatFromInt(cols));
+    const cellHeight = @as(f32, @floatFromInt(screenHeight)) / @as(f32, @floatFromInt(rows));
+
+    for (0..rows) |i| {
+        const y: c_int = @intFromFloat(@as(f32, @floatFromInt(i)) * cellHeight);
+        r.DrawLine(0, y, screenWidth, y, GRID_COLOR);
+    }
+
+    for (0..cols) |j| {
+        const x: c_int = @intFromFloat(@as(f32, @floatFromInt(j)) * cellWidth);
+        r.DrawLine(x, 0, x, screenHeight, GRID_COLOR);
     }
 }
 
@@ -100,11 +128,13 @@ pub fn render(engine: anytype, config: anytype, engineUpdateTime: f64) void {
     r.ClearBackground(BACKGROUND_COLOR);
 
     renderConstraints(&engine.constraints);
+    renderGrid(engine.grid);
 
     const beginRenderTime = r.GetTime();
     for (engine.objects.items) |*obj| {
         renderParticle(obj);
     }
     const engineRenderTime = r.GetTime() - beginRenderTime;
+
     renderEngineInfo(engine, config, engineUpdateTime, engineRenderTime);
 }
