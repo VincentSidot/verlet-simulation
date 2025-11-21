@@ -6,3 +6,5 @@ config/
 zig-out
 
 trash.zig
+
+output.zig.merged

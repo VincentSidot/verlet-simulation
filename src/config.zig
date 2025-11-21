@@ -57,7 +57,9 @@ fn writeInFile(file: File, value: anytype) !void {
     const T = @TypeOf(value);
     const T_size = @sizeOf(T);
 
-    const written = try file.write(@ptrCast(&value));
+    const bytes = std.mem.asBytes(&value);
+
+    const written = try file.write(bytes);
     if (written != T_size) {
         return error.WriteFailed;
     }
@@ -75,8 +77,9 @@ fn readFromFile(file: File, value: anytype) !void {
     };
 
     const T_size = @sizeOf(T);
+    const slices = std.mem.asBytes(value);
 
-    const read = try file.read(@ptrCast(value));
+    const read = try file.read(slices);
     if (read != T_size) {
         return error.ReadFailed;
     }
@@ -217,6 +220,10 @@ pub fn SimulationConfig(allocator: Allocator) type {
             // Read version
             try readFromFile(file, &self.version);
 
+            if (self.version != CURRENT_CONFIG_VERSION) {
+                return error.UnmatchedConfigVersion;
+            }
+
             // Read configuration data
             try readFromFile(file, &self.frameRate);
             try readFromFile(file, &self.objectCount);
@@ -293,6 +300,9 @@ test "write / read config" {
 
     const filePath = "test_config.vscf";
     try configOut.saveToFile(filePath);
+    defer std.fs.cwd().deleteFile(filePath) catch {
+        std.debug.print("Failed to delete test config file: {s}\n", .{filePath});
+    };
 
     const configIn = try SimulationConfig(allocator).loadFromFile(filePath);
     defer configIn.deinit();

@@ -274,6 +274,7 @@ pub fn run(args: RunMode) !void {
                 }
             }
         } else if (config.balls == null) {
+            // No-balls is an indacation that we need to save the config (reading from config already has colors)
             try saveConfig(&config, args.mode.createConfig, &engine);
         }
 
